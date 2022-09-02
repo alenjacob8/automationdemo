@@ -1,0 +1,277 @@
+Step1: Infrastructure Deployment
+Step2: Additional Configuration in Jenkins node server
+Step3: Configuring node server in Jenkins
+Step4: Install nodejs plugin and configuration
+Step5: Install and configure Git on Master server
+Step6: Creating automated pipeline for Angular application
+
+
+--------------------------------
+Step1: Infrastructure Deployment
+--------------------------------
+Create two EC2 instance in AWS
+Server1: Jenkins Master
+Server2: Jenkins Node
+--------------------------------
+
+--------------------------------
+Server 1: Jenkins Master
+--------------------------------
+AMI: Amazon Linux 2 AMI(HVM)- Kernel 5.10,SSD Volume (Free Tier Eligible)
+Instance Type: t3a.medium (2vCPU, 4GiB RAM)
+Key Pair:
+	Create a new keypair 
+	Key pair type: RSA
+	Private key file format: PEM
+Network settings
+	VPC: Default
+	Subnet: No preference
+	Auto-assign public IP: Enable
+	Security Group:
+		Create new security group and enable following rules
+		Security Group name: Jenkins security group
+		Description: This security group is created for Jenkins automation demo
+		Group rule 1: 
+			Type: ssh
+			Protocol: TCP
+			Port range: 22
+			Source type: anywhere (0.0.0.0/0)
+			Description: ssh access
+		Group rule 2:
+			Type: http
+			Protocol: TCP
+			Port range: 80
+			Source type: anywhere (0.0.0.0/0)
+			Description: http access
+		Group rule 3:
+			Type: Custom TCP
+			Protocol: TCP
+			Port range: 8080
+			Source type: anywhere (0.0.0.0/0)
+			Description: httpd access
+Configure Storage:
+	8 GiB gp2 Root volume
+
+Advanced details: (expand)
+Shutdown behavior: stop (select from drop-down)
+User data: (enter below command)
+#!/bin/bash
+yum -y update
+yum -y install java-1.8.0
+wget -O /etc/yum.repos.d/jenkins.repo \
+    https://pkg.jenkins.io/redhat-stable/jenkins.repo
+rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+yum upgrade
+amazon-linux-extras install java-openjdk11 -y
+yum install jenkins -y
+systemctl enable jenkins
+systemctl start jenkins
+
+Launch instance and connect using command line terminal (command prompt or Terminal) or using Putty
+If you use Putty terminal to connect, please load the pem key and save public key in .ppk to connect
+
+Reference: https://www.jenkins.io/doc/tutorials/tutorial-for-installing-jenkins-on-AWS/
+
+After connecting to your Jenkins master, lets configure Jenkins Master terminal to be connected using ssh password instead of keypair
+
+For that we need to configure ec2-user password,
+
+$ sudo passwd ec2-user 
+Changing password for user ec2-user.
+##Set and confirm new password##
+passwd: all authentication tokens updated successfully.
+
+Now we need to update sshd configuration,update the PasswordAuthentication parameter in the /etc/ssh/sshd_config file: PasswordAuthentication yes
+
+$ sudo vi /etc/ssh/sshd_config
+press "i" (for insert)
+PasswordAuthentication yes
+
+press "Esc" and enter ":wq" to save the config file
+
+Restart sshd service
+
+$ sudo service sshd restart
+$ exit
+
+Reset the terminal connection and you should be able to connect to the server using password, without pem/ppk keypair
+
+
+Now lets configure Jenkins node server
+
+--------------------------------
+Server2: Jenkins Node
+--------------------------------
+AMI: Amazon Linux 2 AMI(HVM)- Kernel 5.10,SSD Volume (Free Tier Eligible)
+Instance Type: t3a.medium (2vCPU, 4GiB RAM)
+Key Pair: use existing keypair
+Network settings
+	VPC: Default
+	Subnet: No preference
+	Auto-assign public IP: Enable
+	Security Group: use existing security group created for Jenkins master
+Configure Storage:
+	8 GiB gp2 Root volume
+Advanced details: (expand)
+Shutdown behavior: stop (select from drop-down)
+User data: (enter below command)
+#!/bin/bash
+yum -y update
+yum upgrade
+amazon-linux-extras install java-openjdk11 -y
+yum -y install httpd
+systemctl enable httpd
+systemctl start httpd
+yum -y install java-1.8.0
+
+Repeat the same steps for Server1 (Jenkins Master) to change the ssh login using password instead ssh keypair
+
+$ sudo passwd ec2-user 
+Changing password for user ec2-user.
+##Set and confirm new password##
+passwd: all authentication tokens updated successfully.
+
+Now we need to update sshd configuration,update the PasswordAuthentication parameter in the /etc/ssh/sshd_config file: PasswordAuthentication yes
+
+$ sudo vi /etc/ssh/sshd_config
+press "i" (for insert)
+PasswordAuthentication yes
+
+press "Esc" and enter ":wq" to save the config file
+
+Restart sshd service
+
+$ sudo service sshd restart
+$ exit
+
+Reset the terminal connection and you should be able to connect to the server using password, without pem/ppk keypair
+
+-----------------------------------------------
+Step2: Additional Configuration in Jenkins node server
+-----------------------------------------------
+We need to create two new folders for angular application to place
+
+$ cd /var/www/html
+$ sudo mkdir dist
+$ cd dist/
+$ sudo mkdir automationdemo
+$ cd automationdemo
+$ pwd
+/var/www/html/dist/automationdemo
+
+copy this path and keep it for reference
+
+**Note: please ensure that you are creating these folders in ec2-user access
+
+Now lets update apache document root path with this new path
+
+$ sudo vi /etc/httpd/conf/httpd.conf
+
+Press "i" (for insert) look for DocumentRoot "/var/www/html" and update it as DocumentRoot "/var/www/html/dist/automationdemo"
+Press "Esc" and ":wq"
+
+Now lets restart apache service
+
+$ sudo service httpd restart
+
+change directory back to user directory
+$ pwd
+/home/ec2-user
+$ mkdir jenkins
+$ cd jenkins
+$ pwd
+/home/ec2-user/jenkins
+
+copy this path and keep it for reference
+
+Configuration of Jenkins in Jenkins master
+
+Logon to your http://server1IP:8080
+You should be getting to "Unlock Jenkins" page
+copy the path "/var/lib/jenkins/secrets/initialAdminPassword"
+Access your Server1 using terminal and enter following command
+
+$ sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+This will give admin password to unlock jenkins
+
+In the customize Jenkins page, select "Install suggested plugins"
+This may take sometime to configure your Jenkins system
+
+Once configuration completes, you will get to "Create First Admin User"
+Enter username, password, full name and email address and click on "Save and Continue"
+Next page, click "Save and Finish"
+Lets start using Jenkins now
+
+----------------------------------------
+Step3: Configuring node server in Jenkins
+-----------------------------------------
+In the Jenkins Dashboard, go to Manage Jenkins -> Manage Nodes and Clouds
+In the left pane navigation-> + New Node
+Enter node name as "awsnode"
+(**Note: the node name defined the pipeline script should match here)
+Check the option "Permanent Agent" and click "Create"
+
+Description: aws jenkins node
+Remote root directory: /home/ec2-user/jenkins (paste the jenkins path from server2)
+Launch method: Launch agent via SSH
+Host: (provide the IP address of your Jenkins node server)
+Credentials: click on "+ Add" button and from drop down select "Jenkins"
+Leave all defaults
+username: ec2-user
+password: (enter password that you configured for ec2-user in Jenkins node server)
+Description: Jenkins Node server
+Click "Add" button
+Now in Credentials, from drop-down select "ec2-user/****(Jenkins node server)
+Host Key Verification Strategy: Select "Manually trusted key verification Strategy"
+Scroll down and "Save"
+Now you can see that awsnode is tied to project
+
+
+--------------------------------
+Step4: Install nodejs plugin and configuration
+--------------------------------
+Access your Jenkins console, Dashboard->Manage Jenkins-> Manage Plugins
+In Plugin Manager, select Avaiilable search for Nodejs, select "Install without restart"
+
+Go back to Dashboard, Manage Jenkins->Global Tool Configuration
+Scroll down and you will NodeJS, "Add NodeJS"
+	Name: nodejs
+	version: NodeJS 10.16.3
+leave all other default and "Save"
+
+--------------------------------
+Step5: Install and configure Git on Master server
+--------------------------------
+
+goto your Jenkins Master server terminal
+
+$ sudo yum install git -y
+$ git --version
+
+**Note: If the git is installed properly, it should return the version
+
+--------------------------------
+Step6: Creating automated pipeline for Angular application
+--------------------------------
+
+Goto your Jenkins console, Dashboard-> "+ New Item" in left navigation pane
+Name: automationdemo
+**Note: ensure that you match the script project name as we created the document root folder as this
+
+Select "Pipeline"
+Description: give description of your project
+Check the option, "Do not allow concurrent builds"
+
+Build Triggers: check "Poll SCM"
+Schedule: * * * * * 
+** Note: (its * and <spc>) this means every minute this pipeline will check the SCM, i.e, Git and if there is any change in code it will start the build
+
+Pipeline: Select Pipeline script from SCM (from drop-down)
+SCM: Git (from drop-down)
+Repository URL: enter the URL of your git repo
+Credentials: leave as none if you are using public git
+Scroll down and "Save"
+
+Now, click on "Build Now" in left navigation pane and it will show that building stages is progressing and then finally it will show as completed
+
+Now you can check your Jenkins node server to see if your angular app is created by accessing : http://server2IP
